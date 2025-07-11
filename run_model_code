@@ -1,0 +1,138 @@
+# Basic Imports (versions are controlled by Epic's compute environment, for which we used version 2.1 in this study)
+import os
+import pickle
+import numpy as np
+import pandas as pd
+from typing import Optional
+import xgboost as xgb
+
+# Interconnect Schema handling
+from parcel import Parcel
+
+# Communicate with the EDW
+import json
+
+def predict(data):
+    """
+    This is what returns scores/contributions to cache for a patient, or batch.
+
+    Parameters:
+
+    ---------------------------------------------------------------------------------------
+    data – json payload with both features and metadata; can separate with Parcel.unpack_input()
+    root_dir - allows a callee to tell the method where to pick up resources; for debugging/testing (is not used during ECCP runtime)
+
+    Returns:
+    ---------------------------------------------------------------------------------------
+    Cache formatted prediction(s) for each given sample/patient
+
+
+    ########################################################################################
+    ####    Define Input Features                                                       ####
+    ####                                                                                ####
+    ####    Note:   Here is where we define our inputs and base transformations         ####
+    ####            that we need to preform before handing off a formatted object       ####
+    ####            for our predictor. We will start with a dataframe with data         ####
+    ####            from Chronicles, and then update it to match the expectation        ####
+    ####            of our logistic regression.                                         ####
+    ########################################################################################
+    # ordered_columns simply lists the feature names, and the type they should be cast to.
+     ordered_columns = [   
+
+        ('EDW-ID', "object"),            # String used for EDW lookup
+        ('Age', 'float'),                # 32, 40, etc
+        ('Initial Systolic BP', 'float'),
+        ('Initial Diastolic BP', 'float'),
+        ('Initial Heart Rate', 'float),
+        ('Initial Pulse', 'float'),
+        ('Initial Resp', 'float'),
+        ('Initial SpO2', 'float'),
+        ('Initial Temp', 'float'),
+        ('Admission Weight (kg)', 'float'),
+        ('ESI', 'float'),
+        ('ESI Score 3 or Greater', 'bool'),
+        ('Resuscitation', 'bool'),
+        ('Code Event', 'bool'),
+        ('STEMI', 'bool'),
+        ('Stroke Documentation', 'bool'),
+        ('Trauma Activation', 'bool'),
+        ('Had ECG?', 'bool'),
+        ('Arrival Time of Day', 'float'),
+        ('Arrival Day of the Week', 'float'),
+        ('Arrival Month of Year', 'float'),
+        ('Ambulance', 'bool'),
+        ('Flight', 'bool'),
+        ('Wheelchair', 'bool'),
+        ('Hospital transport', 'bool'),
+        ('Rapid response team', 'bool'),
+        ('from Outside Hospital, 'bool'),
+        ('from Skilled Nursing Facility', 'bool'),
+        ('Other', 'bool'),
+        ('Abnormal Lab', 'bool'),
+        ('Altered Mental Status', 'bool'),
+        ('Fever', 'bool'),
+        ('Shortness of Breath', 'bool'),
+        ('Weakness', 'bool'),
+        ('Respiratory Distress', 'bool'),
+        ('Suicidal', 'bool'),
+        ('Melena (Black or Bloody Stool)', 'bool'),
+        ('Bacteremia', 'bool'),
+        ('Cardiac Arrest', 'bool'),
+        ('Overdose', 'bool'),
+        ('Gastrointestinal hemorrhage', 'bool'),
+        ('Hypotension', 'bool'),
+        ('Stroke-like symptoms', 'bool'),
+        ('Unresponsive', 'bool'),
+        ('Chest Pain', 'bool'),
+        ('Allergic reaction', 'bool'),
+        ('Flank pain', 'bool'),
+        ('Abdominal pain', 'bool'),
+    ]
+
+    # unpack_input() separates metadata (chronicles_info) from the dataframe of features
+    dataframe, chronicles_info = Parcel.unpack_input(data, ordered_columns)
+
+
+*************************************
+    # See make_model_file.py for how this file was created
+    model = pickle.load(open(os.path.join(os.getcwd(), "resources", "RSTmodel.pickle.dat"), "rb"))     
+
+   scores = model.predict(dataframe)
+ 
+    # Though multiple keys are allowed within the "Outputs" node, the one that you'd like to
+    # display (e.g. the score, or probability of the positive class) is specified by the
+    # the score_displayed parameter in Parcel.pack_output().
+
+    # Note that the key specified in score_displayed is what end users will read.
+    formatted_predictions = {
+        "Output1": value_dict(scores, "AdmitProb")
+    }
+
+********************************************************************
+    return_value = Parcel.pack_output(
+        mapped_predictions=formatted_predictions,    # Dictionary with display names corresponding to predictions per sample
+        # The output key you'd like end users to look at (e.g. the positive class name)
+        score_displayed="AdmitProb",
+        chronicles_info=chronicles_info,             # Metadata that should be passed through
+        #feature_contributions=feature_contributions,
+        # This optional parameter can be configured to be displayed in hover bubbles, etc.
+        #additional_features=added_features
+    )
+    return return_value
+
+def value_dict(series: Optional[pd.Series], name: str = "Values", replaceNaN: bool = False) -> dict:
+    """
+    Simple wrapper to add items to output json spec. If a value can be NaN, we should replace with None.
+    """
+    if replaceNaN:
+        return {name: [None if np.isnan(i) else i for i in series]}
+    return {name: list(series)} 
+
+def get_patient_list(dataframe):
+    return json.dumps({'Patients': dataframe['EDW-ID'].tolist()})
+
+def make_auth_header(api_key):
+    return {
+        'Content-type': 'application/json',
+        'Authorization': f'Bearer {api_key}'
+    }

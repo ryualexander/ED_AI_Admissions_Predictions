@@ -1,0 +1,78 @@
+import pandas as pd
+import numpy as np
+import pickle
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split, StratifiedKFold, RandomizedSearchCV
+from sklearn.metrics import mean_absolute_error, make_scorer
+import xgboost as xgb
+
+# --- Load dataset (single site) ---
+df = pd.read_csv("PATH_TO_ED_DATA.csv")
+
+# --- Generic data cleanup ---
+df = df.dropna(axis=1, how='all')
+df = df.loc[:, df.nunique() > 1]
+id_cols = ['Unnamed: 0', 'Patient MRN', 'Visit CSN']
+df = df.drop(columns=[col for col in id_cols if col in df.columns], errors='ignore')
+target_col = 'AdmitFlag'
+df = df.dropna(subset=[target_col])
+
+for col in df.columns:
+    if col == target_col:
+        continue
+    if df[col].dtype.kind in 'biufc':
+        df[col] = df[col].fillna(df[col].median())
+    else:
+        df[col] = df[col].fillna(df[col].mode()[0])
+
+feature_cols = [col for col in df.columns if col != target_col]
+df = pd.get_dummies(df, columns=[col for col in feature_cols if df[col].dtype == 'object'])
+
+X = df.drop(columns=[target_col])
+y = df[target_col]
+
+# --- Train/validation/test split ---
+X_trainval, X_test, y_trainval, y_test = train_test_split(X, y, test_size=0.15, random_state=42, stratify=y)
+
+# --- Hyperparameter optimization with cross-validation (minimize MAE) ---
+xgb_clf = xgb.XGBClassifier(
+    objective='binary:logistic',
+    eval_metric='mae',
+    use_label_encoder=False,
+    n_jobs=-1,
+    random_state=42
+)
+
+param_dist = {
+    'max_depth': [3, 5, 7, 9],
+    'learning_rate': [0.01, 0.05, 0.1, 0.2],
+    'subsample': [0.7, 0.8, 0.9, 1.0],
+    'colsample_bytree': [0.7, 0.8, 0.9, 1.0],
+    'min_child_weight': [1, 3, 5, 7],
+    'n_estimators': [100, 200, 300, 500]
+}
+
+cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+random_search = RandomizedSearchCV(
+    xgb_clf,
+    param_distributions=param_dist,
+    n_iter=30,
+    scoring='neg_mean_absolute_error',
+    n_jobs=-1,
+    cv=cv,
+    verbose=1,
+    random_state=42
+)
+
+random_search.fit(X_trainval, y_trainval)
+best_model = random_search.best_estimator_
+print("Best parameters:", random_search.best_params_)
+
+# --- Evaluate on test set (MAE and calibration) ---
+y_pred_proba = best_model.predict_proba(X_test)[:, 1]
+mae = mean_absolute_error(y_test, y_pred_proba)
+print(f"Test MAE: {mae:.4f}")
+
+# --- Save model ---
+best_model.save_model('ED_model.json')
+pickle.dump(best_model, open("ED_model.pkl", "wb"))

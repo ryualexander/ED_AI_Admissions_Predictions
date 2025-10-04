@@ -9,16 +9,11 @@ import xgboost as xgb
 # --- Load dataset (single site) ---
 df = pd.read_csv("PATH_TO_ED_DATA.csv")
 
-
 # ---Perform feature engineering to get the following features and types ---
-
 """
 Continuous: Patient age, ESI score, initial systolic BP, initial diastolic BP, initial pulse, initial respiratory rate, initial oxygen saturation, initial temperature, patient weight
-
 Boolean: Resuscitation activation, Had ECG?, Code blue activation, STEMI activation, Stroke activation, Trauma activation, Rapid response activation, ESI >=3, AdmitFlag (admit to hospital disposition), arrived in ambulance, arrived in wheelchair, arrived with hospital transport, arrived from outside hospital, arrived from skilled nursing facility, arrived from other, chief complaint abnormal lab, chief complaint altered mental status, chief complaint fever, chief complaint shortness of breath, chief complaint weakness, chief complaint respiratory distress, chief complaint suicidal, chief complaint melena, chief complaint bacteremia, chief complaint cardiac arrest, chief complaint overdose, chief complaint gastrointestinal hemorrhage, chief complaint hypotension, chief complaint stroke-like symptoms, chief complaint unreponsive, chief complaint chest pain, chief complaint allergic reaction, chief complaint flank pain, chief complaint abdominal pain
-
 One-hot encoded: hour of day, month of year, day of week
-
 """
 
 target_col = 'AdmitFlag'
@@ -69,6 +64,28 @@ mae = mean_absolute_error(y_test, y_pred_proba)
 brier = brier_score_loss(y_test, y_pred_proba)
 print(f"Test MAE: {mae:.4f}")
 print(f"Test Brier Score: {brier:.4f}")
+
+# --- Calibration curve ---
+prob_true, prob_pred = calibration_curve(y_test, y_pred_proba_cal, n_bins=10)
+
+plt.figure(figsize=(6,6))
+plt.plot(prob_pred, prob_true, marker='o', label='Calibrated')
+plt.plot([0, 1], [0, 1], linestyle='--', label='Perfectly calibrated')
+plt.xlabel('Mean predicted probability')
+plt.ylabel('Fraction of positives')
+plt.title('Calibration Curve')
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+# --- Feature importance plot ---
+importances = best_model.feature_importances_
+fi_df = pd.DataFrame({'Feature': X.columns, 'Importance': importances}).sort_values(by='Importance', ascending=False)
+fi_df.plot(kind='barh', x='Feature', y='Importance', figsize=(10, 8), legend=False)
+plt.title('Feature Importance')
+plt.xlabel('Gain')
+plt.tight_layout()
+plt.show()
 
 # --- Save model ---
 best_model.save_model('ED_model.json')

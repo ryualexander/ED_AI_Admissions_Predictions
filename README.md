@@ -6,7 +6,7 @@ Artificial intelligence for predicting hospital admissions from the emergency de
 
 Software dependencies and operating systems: The code used in this study is run in Epic’s Nebula cloud computing environment. To use this environment, one must be an Epic customer.
 
-Versions the software has been tested on: The code included was current at the time it was installed for this study. That corresponded to version 2.1 of Epic’s Nebula environment.
+Versions the software has been tested on: The code included was current at the time it was installed for this study. That corresponded to version 2.1 of Epic’s Nebula environment. For the model training code, this was tested with Pandas 1.5.3, scikit-learn 1.2.2, numpy 1.23.5 and xgboost 1.7.6.
 
 Any required non-standard hardware: none.
 
